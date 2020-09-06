@@ -22,33 +22,39 @@ type (
 		Mileage float64 `json:"mileage"`
 	}
 
-	CarWithHealth struct {
-		Car    Car
-		Health int
+	CarWithAge struct {
+		Car Car
+		Age int
 	}
 
 	DataMonitor struct {
 		Cars                  [BufferSize]Car
 		In, Out               int
-		Count, Space          semaphore.Weighted
+		Count, Space          *semaphore.Weighted
 		InputLock, OutputLock sync.Mutex
-		context               context.Context  // needed for semaphore
+		Context               context.Context // needed for semaphore
 	}
 
 	SortedResultMonitor struct {
-		Cars [DataCount]CarWithHealth
+		Cars  [DataCount]CarWithAge
+		Count int
+		Lock  sync.Mutex
 	}
 )
 
 func NewDataMonitor() *DataMonitor {
 	ctx := context.TODO()
-	monitor := DataMonitor{context: ctx}
-	monitor.Space.Acquire(ctx, BufferSize)
+	monitor := DataMonitor{
+		Context: ctx,
+		Count:   semaphore.NewWeighted(BufferSize),
+		Space:   semaphore.NewWeighted(BufferSize),
+	}
+	_ = monitor.Count.Acquire(ctx, BufferSize)
 	return &monitor
 }
 
-func (m *DataMonitor) addItem(car Car) { //todo maybe pass pointer?
-	m.Space.Acquire(m.context, 1)
+func (m *DataMonitor) addItem(car Car) {
+	_ = m.Space.Acquire(m.Context, 1)
 	m.InputLock.Lock()
 	m.Cars[m.In] = car
 	m.In = (m.In + 1) % BufferSize
@@ -57,9 +63,16 @@ func (m *DataMonitor) addItem(car Car) { //todo maybe pass pointer?
 }
 
 func (m *DataMonitor) removeItem() Car {
-	m.Count.Acquire(m.context, 1)
+	_ = m.Count.Acquire(m.Context, 1)
 	m.OutputLock.Lock()
 	car := m.Cars[m.Out]
+
+	if car.Make == "<EndOfInput>" { // Special message to close consumers
+		m.OutputLock.Unlock()
+		m.Count.Release(1)
+		return car
+	}
+
 	m.Out = (m.Out + 1) % BufferSize
 	m.OutputLock.Unlock()
 	m.Space.Release(1)
@@ -69,8 +82,8 @@ func (m *DataMonitor) removeItem() Car {
 func main() {
 	dataMonitor := NewDataMonitor()
 	var resultMonitor SortedResultMonitor
-	var waitGroup sync.WaitGroup
-	waitGroup.Add(RoutineCount)
+	var wg sync.WaitGroup
+	wg.Add(RoutineCount)
 
 	// 1
 	cars := readData("IF-8-1_OdinasT_L1_dat_1.json")
@@ -79,7 +92,7 @@ func main() {
 	for i := 0; i < RoutineCount; i++ {
 		go func() {
 			worker(dataMonitor, &resultMonitor)
-			waitGroup.Done()
+			wg.Done()
 		}()
 	}
 
@@ -87,9 +100,10 @@ func main() {
 	for _, car := range cars {
 		dataMonitor.addItem(car)
 	}
+	dataMonitor.addItem(Car{Make: "<EndOfInput>"})
 
 	// 4
-	waitGroup.Wait()
+	wg.Wait()
 
 	// 5
 	writeData("IF-8-1_OdinasT_L1_rez.txt", resultMonitor)
@@ -97,36 +111,39 @@ func main() {
 }
 
 func worker(in *DataMonitor, out *SortedResultMonitor) {
-//todo take data from monitor 
-	var car Car
-
-	carAge := time.Now().Year() - car.Year + int(car.Mileage/20_000)
-	fmt.Println(carAge)
-
+	for {
+		car := in.removeItem() // Will block if no data
+		if car.Make == "<EndOfInput>" {
+			break
+		}
+		carAge := time.Now().Year() - car.Year + int(car.Mileage/20_000)
+		if carAge < 50 { // todo change
+			car := CarWithAge{car, carAge}
+			out.addItemSorted(car)
+		}
+	}
 }
 
-func (m SortedResultMonitor) addItemSorted() {
-
+func (m *SortedResultMonitor) addItemSorted(car CarWithAge) {
+	m.Lock.Lock()
+	i := m.Count - 1
+	for i >= 0 && m.Cars[i].Age > car.Age {
+		m.Cars[i+1] = m.Cars[i]
+		i--
+	}
+	m.Cars[i+1] = car
+	m.Count++
+	m.Lock.Unlock()
 }
 
-func (m SortedResultMonitor) getItems() {
+func (m *SortedResultMonitor) getItems() {
 
 }
 
 func readData(path string) [DataCount]Car {
-	data, err := ioutil.ReadFile(path)
-
-	if err != nil {
-		panic(fmt.Sprintf("error when reading file %s", path))
-	}
-
+	data, _ := ioutil.ReadFile(path)
 	var cars [DataCount]Car
-	err = json.Unmarshal(data, &cars)
-
-	if err != nil {
-		panic(fmt.Sprintf("error converting json in file %s", path))
-	}
-
+	_ = json.Unmarshal(data, &cars)
 	return cars
 }
 
