@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"golang.org/x/sync/semaphore"
 	"io/ioutil"
+	"os"
+	"strings"
 	"sync"
 	"time"
 )
 
-// todo change to 30
-const DataCount = 10    // How much cars in json file
-const RoutineCount = 10 // How much worker routines to start
-const BufferSize = DataCount / 2
+const DataCount = 30             // How much cars in json file
+const RoutineCount = 10          // How much worker routines to start
+const BufferSize = DataCount / 2 // Size of DataMonitor internal buffer
+const FilterCriteria = 26        // Select cars whose aging value is less
 
 type (
 	Car struct {
@@ -42,6 +44,21 @@ type (
 	}
 )
 
+func main() {
+	dataMonitor := NewDataMonitor()
+	resultMonitor := NewSortedResultMonitor()
+	var wg sync.WaitGroup
+	wg.Add(RoutineCount)
+
+	cars := readData("IF-8-1_OdinasT_L1_dat_1.json")
+	startWorkers(dataMonitor, resultMonitor, &wg)
+	fillDataMonitor(&cars, dataMonitor)
+	wg.Wait()
+	writeData("IF-8-1_OdinasT_L1_rez.txt", &cars, resultMonitor)
+}
+
+func NewSortedResultMonitor() *SortedResultMonitor { return &SortedResultMonitor{} }
+
 func NewDataMonitor() *DataMonitor {
 	ctx := context.TODO()
 	monitor := DataMonitor{
@@ -49,6 +66,8 @@ func NewDataMonitor() *DataMonitor {
 		Count:   semaphore.NewWeighted(BufferSize),
 		Space:   semaphore.NewWeighted(BufferSize),
 	}
+
+	// Exhaust semaphore so consumers couldn't start without data
 	_ = monitor.Count.Acquire(ctx, BufferSize)
 	return &monitor
 }
@@ -67,9 +86,9 @@ func (m *DataMonitor) removeItem() Car {
 	m.OutputLock.Lock()
 	car := m.Cars[m.Out]
 
-	if car.Make == "<EndOfInput>" { // Special message to close consumers
-		m.OutputLock.Unlock()
+	if car.Make == "<EndOfInput>" { // Special message to close consumers when work is done
 		m.Count.Release(1)
+		m.OutputLock.Unlock()
 		return car
 	}
 
@@ -79,35 +98,26 @@ func (m *DataMonitor) removeItem() Car {
 	return car
 }
 
-func main() {
-	dataMonitor := NewDataMonitor()
-	var resultMonitor SortedResultMonitor
-	var wg sync.WaitGroup
-	wg.Add(RoutineCount)
+// Computes custom car aging value
+func (c *Car) Age() int {
+	return time.Now().Year() - c.Year + int(c.Mileage/20_000)
+}
 
-	// 1
-	cars := readData("IF-8-1_OdinasT_L1_dat_1.json")
+func fillDataMonitor(cars *[DataCount]Car, dataMonitor *DataMonitor) {
+	for _, car := range cars {
+		dataMonitor.addItem(car) // Will block if no space
+	}
+	// Inform consumers that there will be no more data coming
+	dataMonitor.addItem(Car{Make: "<EndOfInput>"})
+}
 
-	// 2
+func startWorkers(dataMonitor *DataMonitor, resultMonitor *SortedResultMonitor, wg *sync.WaitGroup) {
 	for i := 0; i < RoutineCount; i++ {
 		go func() {
-			worker(dataMonitor, &resultMonitor)
+			worker(dataMonitor, resultMonitor)
 			wg.Done()
 		}()
 	}
-
-	// 3
-	for _, car := range cars {
-		dataMonitor.addItem(car)
-	}
-	dataMonitor.addItem(Car{Make: "<EndOfInput>"})
-
-	// 4
-	wg.Wait()
-
-	// 5
-	writeData("IF-8-1_OdinasT_L1_rez.txt", resultMonitor)
-
 }
 
 func worker(in *DataMonitor, out *SortedResultMonitor) {
@@ -116,8 +126,9 @@ func worker(in *DataMonitor, out *SortedResultMonitor) {
 		if car.Make == "<EndOfInput>" {
 			break
 		}
-		carAge := time.Now().Year() - car.Year + int(car.Mileage/20_000)
-		if carAge < 50 { // todo change
+
+		carAge := car.Age()
+		if carAge < FilterCriteria {
 			car := CarWithAge{car, carAge}
 			out.addItemSorted(car)
 		}
@@ -136,10 +147,6 @@ func (m *SortedResultMonitor) addItemSorted(car CarWithAge) {
 	m.Lock.Unlock()
 }
 
-func (m *SortedResultMonitor) getItems() {
-
-}
-
 func readData(path string) [DataCount]Car {
 	data, _ := ioutil.ReadFile(path)
 	var cars [DataCount]Car
@@ -147,8 +154,28 @@ func readData(path string) [DataCount]Car {
 	return cars
 }
 
-func writeData(path string, monitor SortedResultMonitor) {
-	for _, car := range monitor.Cars {
-		fmt.Println(car)
+func writeData(path string, inputData *[DataCount]Car, results *SortedResultMonitor) {
+	file, _ := os.Create(path)
+	defer file.Close()
+
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n")
+	_, _ = fmt.Fprintf(file, "┃%25s%16s\n", "INPUT DATA", "┃")
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n")
+	_, _ = fmt.Fprintf(file, "┃%13s┃%10s┃%15s┃\n", "Make", "Year", "Mileage")
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n")
+	for _, car := range inputData {
+		_, _ = fmt.Fprintf(file, "┃%13s┃%10d┃%15.2f┃\n", car.Make, car.Year, car.Mileage)
 	}
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n\n")
+
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
+	_, _ = fmt.Fprintf(file, "┃%29s%18s\n", "OUTPUT DATA", "┃")
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
+	_, _ = fmt.Fprintf(file, "┃%13s┃%10s┃%15s┃%5s┃\n", "Make", "Year", "Mileage", "Age")
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
+	for i := 0; i < results.Count; i++ {
+		data := results.Cars[i]
+		_, _ = fmt.Fprintf(file, "┃%13s┃%10d┃%15.2f┃%5d┃\n", data.Car.Make, data.Car.Year, data.Car.Mileage, data.Age)
+	}
+	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
 }
