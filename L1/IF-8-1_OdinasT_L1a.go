@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/sync/semaphore"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -32,9 +30,9 @@ type (
 	DataMonitor struct {
 		Cars                  [BufferSize]Car
 		In, Out               int
-		Count, Space          *semaphore.Weighted
+		Work, Space           *sync.Cond
+		WorkCount, SpaceCount int
 		InputLock, OutputLock sync.Mutex
-		Context               context.Context // needed for semaphore
 	}
 
 	SortedResultMonitor struct {
@@ -43,6 +41,8 @@ type (
 		Lock  sync.Mutex
 	}
 )
+
+
 
 func main() {
 	dataMonitor := NewDataMonitor()
@@ -58,43 +58,51 @@ func main() {
 }
 
 func NewSortedResultMonitor() *SortedResultMonitor { return &SortedResultMonitor{} }
-
 func NewDataMonitor() *DataMonitor {
-	ctx := context.TODO()
-	monitor := DataMonitor{
-		Context: ctx,
-		Count:   semaphore.NewWeighted(BufferSize),
-		Space:   semaphore.NewWeighted(BufferSize),
-	}
-
-	// Exhaust semaphore so consumers couldn't start without data
-	_ = monitor.Count.Acquire(ctx, BufferSize)
+	monitor := DataMonitor{SpaceCount: BufferSize}
+	monitor.Work = sync.NewCond(&monitor.OutputLock)
+	monitor.Space = sync.NewCond(&monitor.InputLock)
 	return &monitor
 }
 
 func (m *DataMonitor) addItem(item Car) {
-	_ = m.Space.Acquire(m.Context, 1)
 	m.InputLock.Lock()
+	for m.SpaceCount < 1{
+		m.Space.Wait()
+	}
 	m.Cars[m.In] = item
 	m.In = (m.In + 1) % BufferSize
+	m.SpaceCount--
 	m.InputLock.Unlock()
-	m.Count.Release(1)
+
+	m.OutputLock.Lock() // could be 1 line atomic
+	m.WorkCount++
+	m.OutputLock.Unlock()
+
+	m.Work.Signal()
 }
 
 func (m *DataMonitor) removeItem() Car {
-	_ = m.Count.Acquire(m.Context, 1)
 	m.OutputLock.Lock()
-	car := m.Cars[m.Out]
+	for m.WorkCount < 1 {
+		m.Work.Wait()
+	}
 
-	if car.Make == "<EndOfInput>" { // Special message to close consumers when work is done
-		m.Count.Release(1)
+	car := m.Cars[m.Out]
+	if car.Make == "<EndOfInput>" { // Poison pill pattern
 		m.OutputLock.Unlock()
+		m.Work.Signal()
 		return car
 	}
 
 	m.Out = (m.Out + 1) % BufferSize
+	m.WorkCount--
 	m.OutputLock.Unlock()
-	m.Space.Release(1)
+
+	m.InputLock.Lock()
+	m.SpaceCount++
+	m.InputLock.Unlock()
+	m.Space.Signal()
 	return car
 }
 
