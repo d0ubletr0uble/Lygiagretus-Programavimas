@@ -50,11 +50,11 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(RoutineCount)
 
-	cars := readData("IF-8-1_OdinasT_L1_dat_1.json")
+	cars := readData("../IF-8-1_OdinasT_L1_dat_1.json")
 	startWorkers(dataMonitor, resultMonitor, RoutineCount, &wg)
 	fillDataMonitor(&cars, dataMonitor)
 	wg.Wait()
-	writeData("IF-8-1_OdinasT_L1_rez.txt", &cars, resultMonitor)
+	writeData("../IF-8-1_OdinasT_L1_rez.txt", &cars, resultMonitor)
 }
 
 func NewSortedResultMonitor() *SortedResultMonitor { return &SortedResultMonitor{} }
