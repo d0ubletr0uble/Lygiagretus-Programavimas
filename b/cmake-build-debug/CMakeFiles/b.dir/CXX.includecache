@@ -1,0 +1,24 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/user/Desktop/Lygiagretus Programavimas/L1/b/IFK-8_OdinasT_L1b.cpp
+iostream
+-
+iomanip
+-
+fstream
+-
+omp.h
+-
+nlohmann/json.hpp
+-
+utility
+-
+ctime
+-
+

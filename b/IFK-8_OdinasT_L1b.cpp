@@ -164,7 +164,7 @@ int main() {
     DataMonitor dataMonitor;
     ResultMonitor resultMonitor;
     Car cars[DATA_COUNT];
-    ReadData("../../IFK-8_OdinasT_L1_dat_1.json", cars);
+    ReadData("../../IFK-8_OdinasT_L1_dat_2.json", cars);
 
     #pragma omp parallel num_threads(THREAD_COUNT) shared(cars, dataMonitor, resultMonitor) default(none)
     {

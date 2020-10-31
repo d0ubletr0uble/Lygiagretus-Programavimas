@@ -1,0 +1,1 @@
+/usr/bin/c++   -std=c++11 -fopenmp -g   CMakeFiles/b.dir/IFK-8_OdinasT_L1b.cpp.o  -o b 
