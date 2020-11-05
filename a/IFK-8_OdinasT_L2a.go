@@ -11,7 +11,7 @@ import (
 
 const DataCount = 30             // How much cars in json file
 const RoutineCount = 10          // How much worker routines to start
-const BufferSize = DataCount / 2 // Size of DataMonitor internal buffer
+const BufferSize = 5 // Size of DataMonitor internal buffer
 const FilterCriteria = 26        // Select cars whose aging value is less
 
 type (
@@ -38,7 +38,7 @@ func main() {
 
 	resultsOut := make(chan CarWithAge)
 
-	cars := readData("IFK-8_OdinasT_L2_dat_1.json")
+	cars := readData("IFK-8_OdinasT_L2_dat_3.json")
 	startWorkers(dataOut, workersOut, removeRequests, workersToMain)
 	go dataThread(dataIn, dataOut, addRequests, removeRequests)
 	go resultThread(workersOut, resultsOut)
@@ -182,6 +182,7 @@ func readData(path string) [DataCount]Car {
 
 func writeData(path string, inputData *[DataCount]Car, results *[]CarWithAge) {
 	file, _ := os.Create(path)
+	i := 0
 	defer file.Close()
 
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n")
@@ -190,7 +191,8 @@ func writeData(path string, inputData *[DataCount]Car, results *[]CarWithAge) {
 	_, _ = fmt.Fprintf(file, "┃%-13s┃%10s┃%15s┃\n", "Make", "Year", "Mileage")
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n")
 	for _, car := range inputData {
-		_, _ = fmt.Fprintf(file, "┃%-13s┃%10d┃%15.2f┃\n", car.Make, car.Year, car.Mileage)
+		_, _ = fmt.Fprintf(file, "%d┃%-13s┃%10d┃%15.2f┃\n",i, car.Make, car.Year, car.Mileage)
+		i++
 	}
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 42)+"\n\n")
 
@@ -199,8 +201,10 @@ func writeData(path string, inputData *[DataCount]Car, results *[]CarWithAge) {
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
 	_, _ = fmt.Fprintf(file, "┃%-13s┃%10s┃%15s┃%5s┃\n", "Make", "Year", "Mileage", "Age")
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
+	i=0
 	for _, data := range *results {
-		_, _ = fmt.Fprintf(file, "┃%-13s┃%10d┃%15.2f┃%5d┃\n", data.Car.Make, data.Car.Year, data.Car.Mileage, data.Age)
+		_, _ = fmt.Fprintf(file, "%d┃%-13s┃%10d┃%15.2f┃%5d┃\n",i, data.Car.Make, data.Car.Year, data.Car.Mileage, data.Age)
+		i++
 	}
 	_, _ = fmt.Fprint(file, strings.Repeat("━", 48)+"\n")
 }
