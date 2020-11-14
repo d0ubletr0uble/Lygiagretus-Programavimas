@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from multiprocessing import Pool
+from functools import partial
 
 
 def generate_dots(n = -1):
@@ -12,11 +14,6 @@ def generate_dots(n = -1):
         y = np.random.randint(-10, 11)
         dots.append((x, y))
     return np.array(dots)
-
-
-dots = generate_dots(6)
-x = dots[:, 0]
-y = dots[:, 1]
 
 
 def calculate_parameters(x, y):
@@ -41,20 +38,31 @@ def loss(x, y, average, s):
     return sum + abs(length - s)
 
 
-def gradient(x, y, average, s):
-    g = []
-    h = 1e-12
-    f0 = loss(x, y, average, s)
-    for i in range(len(x)):
-        xx = np.array(x, copy=True)
-        yy = np.array(y, copy=True)
-        xx[i] += h
-        yy[i] += h
-        dx = (loss(xx, y, average, s) - f0) / h
-        dy = (loss(x, yy, average, s) - f0) / h
-        g.append((dx, dy))
+def jacobian_matrix(x, y, average, s):
+    """
+    Gradients for all points
+    """
+    f = partial(single_gradient, x, y, average, s)
+
+    with Pool() as p:
+        g = p.map(f, range(len(x)))
+
     g = np.array(g).T
     return g / np.linalg.norm(g)
+
+
+def single_gradient(x, y, average, s, i):
+    """
+    Gradient for single point
+    """
+    f0 = loss(x, y, average, s)
+    xx = np.array(x, copy=True)
+    yy = np.array(y, copy=True)
+    xx[i] += 1e-12
+    yy[i] += 1e-12
+    dx = (loss(xx, y, average, s) - f0) / 1e-12
+    dy = (loss(x, yy, average, s) - f0) / 1e-12
+    return dx, dy
 
 
 def gradient_descent(x, y, s):
@@ -68,7 +76,7 @@ def gradient_descent(x, y, s):
         iteration += 1
         prev_loss = loss(x, y, average_length, s)
 
-        grad = gradient(x, y, average_length, s)
+        grad = jacobian_matrix(x, y, average_length, s)
         grad[:, 0] = 0  # point (0,0) is fixed in place
 
         log.append((iteration, prev_loss))
@@ -108,6 +116,9 @@ def display_loss(log):
     plt.ylabel('loss')
     plt.show()
 
+dots = generate_dots(60)
+x = dots[:, 0]
+y = dots[:, 1]
 
 show_dots(x, y)
 S = 10
