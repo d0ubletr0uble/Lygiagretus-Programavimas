@@ -2,11 +2,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 from multiprocessing import Pool
 from functools import partial
+import time
 
 
-def generate_dots(n = -1):
+def generate_dots(n=-1):
+    """
+    Generate array of dots
+    :param n: how many dots (default: random between 3 and 20)
+    :return: numpy array made of (x,y) tuples
+    """
     dots = [(0, 0)]
-    count = np.random.randint(3, 20)
+    count = np.random.randint(2, 20)
     if n > 1:
         count = n - 1
     for _ in range(count):
@@ -17,6 +23,9 @@ def generate_dots(n = -1):
 
 
 def calculate_parameters(x, y):
+    """
+    Calculates average edge length and sum of all distances
+    """
     sum = 0
     n = len(x)
     for i in range(n):
@@ -28,6 +37,9 @@ def calculate_parameters(x, y):
 
 
 def loss(x, y, average, s):
+    """
+    Loss function for gradient descent
+    """
     sum = 0
     n = len(x)
     _, length = calculate_parameters(x, y)
@@ -38,13 +50,13 @@ def loss(x, y, average, s):
     return sum + abs(length - s)
 
 
-def jacobian_matrix(x, y, average, s):
+def jacobian_matrix(x, y, average, s, cpu_count):
     """
     Gradients for all points
     """
     f = partial(single_gradient, x, y, average, s)
 
-    with Pool() as p:
+    with Pool(cpu_count) as p:
         g = p.map(f, range(len(x)))
 
     g = np.array(g).T
@@ -65,7 +77,10 @@ def single_gradient(x, y, average, s, i):
     return dx, dy
 
 
-def gradient_descent(x, y, s):
+def gradient_descent(x, y, s, cpu_count):
+    """
+    Minimizes loss function by changing x,y coordinates
+    """
     iteration = 0
     precision = 1e10
     log = []
@@ -76,7 +91,7 @@ def gradient_descent(x, y, s):
         iteration += 1
         prev_loss = loss(x, y, average_length, s)
 
-        grad = jacobian_matrix(x, y, average_length, s)
+        grad = jacobian_matrix(x, y, average_length, s, cpu_count)
         grad[:, 0] = 0  # point (0,0) is fixed in place
 
         log.append((iteration, prev_loss))
@@ -89,7 +104,7 @@ def gradient_descent(x, y, s):
             show_dots(x, y)
             display_loss(np.array(log))
             break
-        #  step corection after loss increase
+        #  step correction after loss increase
         if current_loss > prev_loss:
             x = x + alpha * grad[0]  # reverse step
             y = y + alpha * grad[1]
@@ -105,7 +120,7 @@ def show_dots(x, y):
         plt.text(x[i], y[i], f'({x[i]:.2f}, {y[i]:.2f})', size='large')
     #  connect to full graph with blue lines
     for i in range(n):
-        for j in range(i+1, n):
+        for j in range(i + 1, n):
             plt.plot((x[i], x[j]), (y[i], y[j]), 'b-', linewidth=0.5)
     plt.show()
 
@@ -116,10 +131,19 @@ def display_loss(log):
     plt.ylabel('loss')
     plt.show()
 
-dots = generate_dots(60)
-x = dots[:, 0]
-y = dots[:, 1]
 
-show_dots(x, y)
-S = 10
-gradient_descent(x, y, S)
+def main():
+    n = int(input('Enter number of points to generate: ') or -1)
+    cpu_count = int(input('Enter number of processes to use: ') or 4)
+ 
+    dots = generate_dots(n)
+    x = dots[:, 0]
+    y = dots[:, 1]
+
+    show_dots(x, y)
+    S = 10
+    gradient_descent(x, y, S, cpu_count)
+
+
+if __name__ == '__main__':
+    main()
