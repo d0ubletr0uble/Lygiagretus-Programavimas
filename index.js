@@ -1,6 +1,6 @@
 'use strict';
 
-const {writeFileSync} = require('fs');
+const {writeFileSync, appendFileSync} = require('fs');
 const endOfLine = require('os').EOL;
 const {start, dispatch, spawnStateless, spawn} = require('nact');
 const system = start();
@@ -11,7 +11,7 @@ const FILTER = 0, COLLECT = 1, STORE = 2, RETRIEVE = 3, PRINT = 4, END_OF_DATA =
 // PROGRAM SETTINGS
 const WORKER_COUNT = 4;
 const FILTER_CRITERIA = 26;
-const DATA_FILE = './IFK-8_OdinasT_dat_3.json';
+const DATA_FILE = './IFK-8_OdinasT_dat_1.json';
 const RESULT_FILE = 'IFK-8_OdinasT_rez.txt';
 
 /**
@@ -43,8 +43,22 @@ function collect(state = [], msg, ctx) {
 /**
  * Writes car data to result file.
  */
-function print(cars, _) {
+function writeToFile(cars, _) {
+    // write input data
     writeFileSync(RESULT_FILE, [
+        '='.repeat(32),
+        '|          INPUT DATA          |',
+        '='.repeat(32),
+        '|     Make    | Year|  Mileage |',
+        '='.repeat(32),
+        ...require(DATA_FILE).map(car => `|${car.make.padEnd(13)}| ${car.year}|${car.mileage.toString().padStart(10)}|`),
+        '='.repeat(32)].join(endOfLine));
+
+    // append output data
+    appendFileSync(RESULT_FILE, [
+        endOfLine.repeat(2),
+        '='.repeat(36),
+        '|            OUTPUT DATA           |',
         '='.repeat(36),
         '|     Make    | Year|  Mileage |Age|',
         '='.repeat(36),
@@ -64,7 +78,7 @@ function distribute(state, msg, ctx) {
             ),
             nextWorkerIndex: 0,
             collector: spawn(ctx.self, collect, `collector`),
-            printer: spawnStateless(ctx.self, print, `printer`)
+            printer: spawnStateless(ctx.self, writeToFile, `printer`)
         };
     }
 
@@ -94,6 +108,5 @@ if (require.main === module) {
 
     // array of 30 cars in datafile
     require(DATA_FILE).forEach(car => dispatch(distributor, {type: FILTER, data: car}));
-
     dispatch(distributor, {type: END_OF_DATA});
 }
